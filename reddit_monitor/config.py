@@ -11,7 +11,9 @@ REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET")
 REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "RedditMonitor/1.0")
 # Target Reddit entities to monitor
 TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
+# Support for single or multiple subreddits (comma-separated)
 TARGET_SUBREDDIT = os.environ.get("TARGET_SUBREDDIT")
+TARGET_SUBREDDITS = [sub.strip() for sub in TARGET_SUBREDDIT.split(",")] if TARGET_SUBREDDIT else []
 # Polling interval in seconds
 POLLING_INTERVAL = int(os.environ.get("POLLING_INTERVAL", "60"))
 

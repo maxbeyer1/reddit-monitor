@@ -64,7 +64,7 @@ class RedditMonitor:
         # Check target monitoring parameters
         if not self.config.TARGET_USERNAME:
             missing_vars.append("TARGET_USERNAME")
-        if not self.config.TARGET_SUBREDDIT:
+        if not self.config.TARGET_SUBREDDITS:
             missing_vars.append("TARGET_SUBREDDIT")
             
         # Check webhook configuration if enabled
@@ -90,48 +90,49 @@ class RedditMonitor:
         signal.signal(signal.SIGTERM, signal_handler)
 
     def check_for_new_posts(self):
-        """Check for new posts from the target user in the target subreddit."""
+        """Check for new posts from the target user in the monitored subreddits."""
         try:
-            # Get the subreddit
-            subreddit = self.reddit.subreddit(self.config.TARGET_SUBREDDIT)
+            for subreddit_name in self.config.TARGET_SUBREDDITS:
+                # Get the subreddit
+                subreddit = self.reddit.subreddit(subreddit_name)
 
-            # Get new submissions from the subreddit
-            # Limit to recent posts to avoid excessive API usage
-            for submission in subreddit.new(limit=10):
-                # Check if this post is from our target user
-                if submission.author and submission.author.name.lower() == self.config.TARGET_USERNAME.lower():
-                    post_id = submission.id
+                # Get new submissions from the subreddit
+                # Limit to recent posts to avoid excessive API usage
+                for submission in subreddit.new(limit=10):
+                    # Check if this post is from our target user
+                    if submission.author and submission.author.name.lower() == self.config.TARGET_USERNAME.lower():
+                        post_id = submission.id
 
-                    # Skip if we've already seen this post
-                    if self.state_manager.is_post_seen(post_id):
-                        continue
+                        # Skip if we've already seen this post
+                        if self.state_manager.is_post_seen(post_id):
+                            continue
 
-                    # Construct notification message
-                    title = f"New Reddit Post by u/{submission.author.name}"
-                    message = (
-                        f"Post in r/{submission.subreddit.display_name}: {submission.title}\n\n"
-                        f"Posted at: {datetime.fromtimestamp(submission.created_utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
-                    )
-                    link = f"https://www.reddit.com{submission.permalink}"
+                        # Construct notification message
+                        title = f"New Reddit Post by u/{submission.author.name}"
+                        message = (
+                            f"Post in r/{submission.subreddit.display_name}: {submission.title}\n\n"
+                            f"Posted at: {datetime.fromtimestamp(submission.created_utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        )
+                        link = f"https://www.reddit.com{submission.permalink}"
 
-                    # Mark the post as seen first to avoid duplicate processing
-                    self.state_manager.mark_post_seen(
-                        post_id,
-                        submission.author.name,
-                        submission.subreddit.display_name,
-                        submission.title
-                    )
-                    
-                    # Send the notification with the post_id for acknowledgment tracking
-                    notification_sent = self.notifier.send_notification(
-                        title, message, link, post_id)
+                        # Mark the post as seen first to avoid duplicate processing
+                        self.state_manager.mark_post_seen(
+                            post_id,
+                            submission.author.name,
+                            submission.subreddit.display_name,
+                            submission.title
+                        )
+                        
+                        # Send the notification with the post_id for acknowledgment tracking
+                        notification_sent = self.notifier.send_notification(
+                            title, message, link, post_id)
 
-                    logger.info(
-                        "Detected new post by target user: %s", post_id)
+                        logger.info(
+                            "Detected new post by target user in r/%s: %s", subreddit_name, post_id)
 
-                    # Return if successful to avoid processing multiple posts in a single loop
-                    if notification_sent:
-                        return notification_sent
+                        # Return if successful to avoid processing multiple posts in a single loop
+                        if notification_sent:
+                            return notification_sent
 
             # No new posts found
             return True
@@ -144,7 +145,9 @@ class RedditMonitor:
     def run(self):
         """Start the monitoring loop."""
         logger.info(
-            "Starting Reddit monitor for u/%s in r/%s", self.config.TARGET_USERNAME, self.config.TARGET_SUBREDDIT)
+            "Starting Reddit monitor for u/%s in subreddits: %s", 
+            self.config.TARGET_USERNAME, 
+            ", ".join([f"r/{sub}" for sub in self.config.TARGET_SUBREDDITS]))
         self.running = True
         
         # Start the webhook server if enabled
