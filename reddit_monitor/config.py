@@ -38,5 +38,14 @@ TWILIO_TO_NUMBER = os.environ.get("TWILIO_TO_NUMBER")
 # State management
 DATABASE_PATH = os.environ.get("DATABASE_PATH", "/data/seen_posts.db")
 
+# Acknowledgment webhook server
+WEBHOOK_ENABLED = os.environ.get("WEBHOOK_ENABLED", "true").lower() == "true"
+WEBHOOK_HOST = os.environ.get("WEBHOOK_HOST", "0.0.0.0")  # Listen on all interfaces by default
+WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "5000"))
+WEBHOOK_PATH = os.environ.get("WEBHOOK_PATH", "/acknowledge")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")  # Secret key for webhook authentication
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")  # Public URL for callbacks (must be set in .env)
+NOTIFICATION_FOLLOWUP_MINUTES = int(os.environ.get("NOTIFICATION_FOLLOWUP_MINUTES", "3"))
+
 # Debugging
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"

@@ -2,6 +2,8 @@
 import logging
 import base64
 import requests
+import time
+import threading
 from twilio.rest import Client
 
 logger = logging.getLogger(__name__)
@@ -10,10 +12,13 @@ logger = logging.getLogger(__name__)
 class NotificationService:
     """Handles sending notifications through various channels."""
 
-    def __init__(self, config):
+    def __init__(self, config, state_manager=None):
         """Initialize the notification service with configuration."""
         self.config = config
+        self.state_manager = state_manager
         self.twilio_client = None
+        self.running = False
+        self.followup_thread = None
 
         # Initialize Twilio client if enabled
         if self.config.TWILIO_ENABLED:
@@ -26,18 +31,35 @@ class NotificationService:
             except Exception as e:
                 logger.error("Failed to initialize Twilio client: %s", e)
 
-    def send_notification(self, title, message, link=None):
+    def send_notification(self, title, message, link=None, post_id=None):
         """Send notification through primary and potentially backup channels."""
-        success = self._send_ntfy_notification(title, message, link)
+        notification_id = None
 
-        # If ntfy fails and Twilio is enabled, try SMS as backup
+        # If state_manager and post_id are provided, create a pending notification
+        if self.state_manager and post_id:
+            notification_id = self.state_manager.create_pending_notification(
+                post_id, title, message, link)
+            logger.info("Created pending notification %s for post %s",
+                        notification_id, post_id)
+
+        # Send ntfy notification
+        success = self._send_ntfy_notification(
+            title, message, link, notification_id)
+
+        # If ntfy fails and Twilio is enabled, try Twilio as immediate backup
         if not success and self.config.TWILIO_ENABLED and self.twilio_client:
             self._send_twilio_notification(title, message, link)
 
+            # If we had created a pending notification, mark it as acknowledged
+            # since we've already sent the backup notification
+            if notification_id:
+                self.state_manager.mark_notification_acknowledged(
+                    notification_id)
+
         return success
 
-    def _send_ntfy_notification(self, title, message, link=None):
-        """Send notification through ntfy.sh."""
+    def _send_ntfy_notification(self, title, message, link=None, notification_id=None):
+        """Send notification through ntfy.sh with optional acknowledgment."""
         ntfy_url = f"{self.config.NTFY_URL}/{self.config.NTFY_TOPIC}"
 
         headers = {
@@ -46,8 +68,25 @@ class NotificationService:
             "Tags": self.config.NTFY_TAGS,
         }
 
-        # Add link if provided
-        if link:
+        # Add click action - either the original link or our acknowledgment URL
+        if self.config.WEBHOOK_ENABLED and notification_id and self.config.WEBHOOK_URL:
+            # Add actions for acknowledgment
+            ack_url = f"{self.config.WEBHOOK_URL}{self.config.WEBHOOK_PATH}?id={notification_id}&secret={self.config.WEBHOOK_SECRET}"
+
+            # If there's an original link, add both actions
+            if link:
+                headers["Actions"] = f"view, View Post, {link}; view, Acknowledge, {ack_url}, clear=true"
+                # Still set the primary click to the original link for convenience
+                headers["Click"] = link
+            else:
+                # Just set the acknowledgment as the click action
+                headers["Click"] = ack_url
+                headers["Actions"] = f"view, Acknowledge, {ack_url}, clear=true"
+
+            # Add a note about acknowledgment to the message
+            message = f"{message}\n\nPlease acknowledge this notification within {self.config.NOTIFICATION_FOLLOWUP_MINUTES} minutes to prevent a phone alert."
+        elif link:
+            # Just use the original link if no acknowledgment
             headers["Click"] = link
 
         # Add authentication if credentials are provided
@@ -122,3 +161,63 @@ class NotificationService:
                 # We don't consider this a failure since SMS is secondary
 
         return success
+
+    def start_followup_thread(self):
+        """Start a background thread to check for unacknowledged notifications."""
+        if not self.state_manager or not self.config.TWILIO_ENABLED:
+            logger.info(
+                "Notification followup is disabled - missing state manager or Twilio is disabled")
+            return False
+
+        if self.running:
+            logger.warning("Followup thread is already running")
+            return False
+
+        def check_for_pending_notifications():
+            logger.info("Starting notification followup thread")
+            self.running = True
+
+            while self.running:
+                try:
+                    # Check for notifications older than the configured timeout
+                    pending = self.state_manager.get_pending_notifications_needing_followup(
+                        minutes=self.config.NOTIFICATION_FOLLOWUP_MINUTES)
+
+                    for notification in pending:
+                        logger.info("Found unacknowledged notification: %s",
+                                    notification['notification_id'])
+
+                        # Send Twilio notification as followup
+                        self._send_twilio_notification(
+                            notification['title'],
+                            f"{notification['message']}\n\n(This is a followup because the original notification was not acknowledged.)",
+                            notification['link']
+                        )
+
+                        # Mark as acknowledged since we've sent the followup
+                        self.state_manager.mark_notification_acknowledged(
+                            notification['notification_id'])
+
+                    # Sleep for a minute between checks
+                    time.sleep(60)
+                except Exception as e:
+                    logger.error(
+                        "Error in notification followup thread: %s", e)
+                    time.sleep(60)  # Sleep on error to avoid rapid retries
+
+            logger.info("Notification followup thread stopped")
+
+        self.followup_thread = threading.Thread(
+            target=check_for_pending_notifications)
+        self.followup_thread.daemon = True
+        self.followup_thread.start()
+        return True
+
+    def stop_followup_thread(self):
+        """Stop the followup thread."""
+        if not self.running:
+            return
+
+        logger.info("Stopping notification followup thread")
+        self.running = False
+        # Thread will exit on next loop check

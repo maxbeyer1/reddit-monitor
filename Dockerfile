@@ -21,5 +21,8 @@ USER appuser
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
+# Expose webhook server port
+EXPOSE 5000
+
 # Run the application
 CMD ["python", "main.py"]

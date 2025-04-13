@@ -8,6 +8,7 @@ import praw
 
 from .state_manager import StateManager
 from .notifier import NotificationService
+from .webhook import WebhookServer
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,12 @@ class RedditMonitor:
 
         # Initialize services
         self.state_manager = StateManager(config.DATABASE_PATH)
-        self.notifier = NotificationService(config)
+        self.notifier = NotificationService(config, self.state_manager)
+        
+        # Initialize webhook server if enabled
+        self.webhook_server = None
+        if config.WEBHOOK_ENABLED:
+            self.webhook_server = WebhookServer(config, self.state_manager)
 
         # Initialize Reddit client
         self.reddit = self._setup_reddit_client()
@@ -60,6 +66,13 @@ class RedditMonitor:
             missing_vars.append("TARGET_USERNAME")
         if not self.config.TARGET_SUBREDDIT:
             missing_vars.append("TARGET_SUBREDDIT")
+            
+        # Check webhook configuration if enabled
+        if self.config.WEBHOOK_ENABLED and not self.config.WEBHOOK_URL:
+            logger.warning("WEBHOOK_URL is not set but webhook is enabled - acknowledgment links will not work properly")
+            
+        if self.config.WEBHOOK_ENABLED and not self.config.WEBHOOK_SECRET:
+            logger.warning("WEBHOOK_SECRET is not set - this is a security risk")
 
         if missing_vars:
             error_msg = f"Missing required configuration variables: {', '.join(missing_vars)}"
@@ -101,17 +114,17 @@ class RedditMonitor:
                     )
                     link = f"https://www.reddit.com{submission.permalink}"
 
-                    # Send the notification
-                    notification_sent = self.notifier.send_notification(
-                        title, message, link)
-
-                    # Mark as seen regardless of notification success to avoid duplicate attempts
+                    # Mark the post as seen first to avoid duplicate processing
                     self.state_manager.mark_post_seen(
                         post_id,
                         submission.author.name,
                         submission.subreddit.display_name,
                         submission.title
                     )
+                    
+                    # Send the notification with the post_id for acknowledgment tracking
+                    notification_sent = self.notifier.send_notification(
+                        title, message, link, post_id)
 
                     logger.info(
                         "Detected new post by target user: %s", post_id)
@@ -131,8 +144,18 @@ class RedditMonitor:
     def run(self):
         """Start the monitoring loop."""
         logger.info(
-            "Starting Reddit monitor for u/%s in r/%s", {self.config.TARGET_USERNAME}, {self.config.TARGET_SUBREDDIT})
+            "Starting Reddit monitor for u/%s in r/%s", self.config.TARGET_USERNAME, self.config.TARGET_SUBREDDIT)
         self.running = True
+        
+        # Start the webhook server if enabled
+        if self.webhook_server and self.config.WEBHOOK_ENABLED:
+            self.webhook_server.start()
+            logger.info("Webhook server started")
+        
+        # Start the notification followup thread
+        if self.config.WEBHOOK_ENABLED and self.config.TWILIO_ENABLED:
+            self.notifier.start_followup_thread()
+            logger.info("Notification followup thread started")
 
         while self.running:
             try:
@@ -150,5 +173,12 @@ class RedditMonitor:
 
                 # Sleep to avoid hammering the API in case of persistent errors
                 time.sleep(10)
+        
+        # Stop the notification followup thread
+        if self.notifier:
+            self.notifier.stop_followup_thread()
+            
+        # There's no clean way to stop the Flask server in this implementation
+        # In a production environment, you'd use a proper WSGI server with shutdown capabilities
 
         logger.info("Reddit monitor stopped")
