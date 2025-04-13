@@ -26,6 +26,10 @@ NTFY_PASSWORD = os.environ.get("NTFY_PASSWORD")
 
 # Backup notification (Twilio)
 TWILIO_ENABLED = os.environ.get("TWILIO_ENABLED", "true").lower() == "true"
+TWILIO_VOICE_ENABLED = os.environ.get(
+    "TWILIO_VOICE_ENABLED", "true").lower() == "true"
+TWILIO_SMS_ENABLED = os.environ.get(
+    "TWILIO_SMS_ENABLED", "false").lower() == "true"
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")

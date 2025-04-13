@@ -73,40 +73,52 @@ class NotificationService:
             return False
 
     def _send_twilio_notification(self, title, message, link=None):
-        """Send notification through Twilio SMS as a backup."""
+        """Send notification through Twilio voice and SMS as a backup."""
         if not self.twilio_client:
             logger.error("Twilio client not initialized, cannot send SMS")
             return False
 
-        # Format SMS message
-        sms_message = f"{title}\n\n{message}"
-        if link:
-            sms_message += f"\n\nLink: {link}"
+        success = False
 
-        try:
-            # Attempt to send SMS
-            message = self.twilio_client.messages.create(
-                body=sms_message,
-                from_=self.config.TWILIO_FROM_NUMBER,
-                to=self.config.TWILIO_TO_NUMBER
-            )
-            logger.info(
-                "Successfully sent Twilio SMS notification: %s", message.sid)
-            return True
-        except Exception as e:
-            logger.error("Error sending Twilio SMS notification: %s", e)
-
-            # Try a phone call as a last resort for truly critical alerts
+        # Voice call is now the primary backup notification method
+        if self.config.TWILIO_VOICE_ENABLED:
             try:
                 # Create a TwiML response for the call
+                # Create a more detailed voice message that includes key info
+                voice_message = f"Alert! New Reddit post detected by {self.config.TARGET_USERNAME} in {self.config.TARGET_SUBREDDIT}. {title}."
+
                 call = self.twilio_client.calls.create(
-                    twiml=f'<Response><Say>Alert! {title}. Check your phone for details.</Say></Response>',
+                    twiml=f'<Response><Say>{voice_message}</Say><Pause length="1"/><Say>Check notifications for details.</Say></Response>',
                     from_=self.config.TWILIO_FROM_NUMBER,
                     to=self.config.TWILIO_TO_NUMBER
                 )
                 logger.info(
                     "Successfully initiated Twilio voice call: %s", call.sid)
-                return True
+                success = True
             except Exception as call_error:
                 logger.error("Error making Twilio voice call: %s", call_error)
-                return False
+
+        # Still attempt SMS if enabled, but don't make overall success dependent on it
+        # SMS messages will be held until verification is complete
+        if self.config.TWILIO_SMS_ENABLED:
+            # Format SMS message
+            sms_message = f"{title}\n\n{message}"
+            if link:
+                sms_message += f"\n\nLink: {link}"
+
+            try:
+                # Attempt to send SMS
+                sms = self.twilio_client.messages.create(
+                    body=sms_message,
+                    from_=self.config.TWILIO_FROM_NUMBER,
+                    to=self.config.TWILIO_TO_NUMBER
+                )
+                logger.info(
+                    "Successfully sent Twilio SMS notification: %s", sms.sid)
+                # Don't set success=True here since we're treating SMS as secondary
+            except Exception as e:
+                logger.error(
+                    "Error sending Twilio SMS notification (expected if not verified): %s", e)
+                # We don't consider this a failure since SMS is secondary
+
+        return success
