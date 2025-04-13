@@ -21,6 +21,8 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "reddit-monitor")
 NTFY_PRIORITY = int(os.environ.get("NTFY_PRIORITY", "5")
                     )  # Urgent priority by default
 NTFY_TAGS = os.environ.get("NTFY_TAGS", "red_circle,warning")
+NTFY_USERNAME = os.environ.get("NTFY_USERNAME")
+NTFY_PASSWORD = os.environ.get("NTFY_PASSWORD")
 
 # Backup notification (Twilio)
 TWILIO_ENABLED = os.environ.get("TWILIO_ENABLED", "true").lower() == "true"

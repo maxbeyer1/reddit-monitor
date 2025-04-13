@@ -1,8 +1,8 @@
 """Application entry point."""
 import logging
 import os
-from . import config
-from .monitor import RedditMonitor
+from reddit_monitor import config
+from reddit_monitor.monitor import RedditMonitor
 
 
 def setup_logging():

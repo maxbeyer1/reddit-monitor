@@ -1,5 +1,6 @@
 """Notification service for sending alerts about posts."""
 import logging
+import base64
 import requests
 from twilio.rest import Client
 
@@ -42,12 +43,19 @@ class NotificationService:
         headers = {
             "Title": title,
             "Priority": str(self.config.NTFY_PRIORITY),
-            "Tags": self.config.NTFY_TAGS
+            "Tags": self.config.NTFY_TAGS,
         }
 
         # Add link if provided
         if link:
             headers["Click"] = link
+
+        # Add authentication if credentials are provided
+        if self.config.NTFY_USERNAME and self.config.NTFY_PASSWORD:
+            auth_str = f"{self.config.NTFY_USERNAME}:{self.config.NTFY_PASSWORD}"
+            encoded_auth = base64.b64encode(auth_str.encode()).decode()
+            headers["Authorization"] = f"Basic {encoded_auth}"
+            logger.debug("Added Basic authentication to ntfy request")
 
         try:
             response = requests.post(

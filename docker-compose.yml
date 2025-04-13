@@ -1,0 +1,22 @@
+services:
+  reddit-monitor:
+    build: .
+    container_name: reddit-monitor
+    restart: always
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, os; sys.exit(0 if os.path.exists('/app/logs/reddit_monitor.log') else 1)",
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
