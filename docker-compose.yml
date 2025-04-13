@@ -1,13 +1,15 @@
 services:
   reddit-monitor:
-    build: .
+    build: 
+      context: .
+      network: host
     container_name: reddit-monitor
     restart: always
     volumes:
       - ./data:/data
       - ./logs:/app/logs
     ports:
-      - "5001:5000" # Map webhook server port to host
+      - "5007:5000" # Map webhook server port to host
     env_file:
       - .env
     healthcheck:

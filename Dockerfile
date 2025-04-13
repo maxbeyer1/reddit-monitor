@@ -13,9 +13,11 @@ COPY main.py /app/
 # Create directories for data and logs
 RUN mkdir -p /data /app/logs
 
+RUN chmod 777 /app/logs
+
 # Run as non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-RUN chown -R appuser:appgroup /app /data
+RUN chown -R appuser:appgroup /app /data /app/logs
 USER appuser
 
 # Set environment variables
